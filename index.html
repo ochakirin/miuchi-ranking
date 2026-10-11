@@ -56,7 +56,6 @@
         <canvas id="timeChart" height="140"></canvas>
       </div>
 
-      <!-- ★ 追記: 個人タイムに関する注意事項 -->
       <div class="text-muted small mb-3 px-2">
         ※ 個人タイム（区間タイム）は最終のタイム精査で若干変更される可能性があります。また、足切り・ペナルティ等は別途換算されます。
       </div>
@@ -117,10 +116,27 @@
       let myChart = null;
       let currentChartMode = 'time';
 
+      // ご指定の区切りとなるラップ名（走者交代のタイミング）
+      const sectionBoundaries = [
+        "DQ7終了/DQ1スタート",
+        "DQ1終了/DQ4スタート",
+        "DQ4終了/DQ6スタート",
+        "DQ6終了/DQ5スタート",
+        "DQ5終了/DQ2スタート",
+        "DQ2終了/DQ3スタート",
+        "DQ3終了"
+      ];
+
       function parseTimeToSeconds(timeStr) {
         if (!timeStr) return null;
-        if (!isNaN(timeStr)) return Number(timeStr);
-        const parts = timeStr.toString().split(':').map(Number);
+        let str = timeStr.toString().trim();
+        // GAS側から「1899/12/30 12:34:56」のような日付混じりの文字列が来た場合、時刻部分だけを抽出する安全対策
+        if (str.includes(' ')) {
+          str = str.split(' ').pop();
+        }
+        
+        const parts = str.split(':').map(Number);
+        if (parts.some(isNaN)) return null;
         if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2]; 
         if (parts.length === 2) return parts[0] * 60 + parts[1]; 
         if (parts.length === 1) return parts[0];
@@ -142,6 +158,11 @@
         const absSeconds = Math.abs(diffSeconds);
         const m = Math.floor(absSeconds / 60);
         const s = Math.floor(absSeconds % 60);
+        // 分・秒だけでなく、必要に応じて時間も表示できるように対応
+        if (absSeconds >= 3600) {
+          const h = Math.floor(absSeconds / 3600);
+          return `${isNegative ? '-' : '+'}${String(h).padStart(2, '0')}:${String(m%60).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+        }
         return `${isNegative ? '-' : '+'}${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
       }
 
@@ -149,22 +170,35 @@
         return `hsl(${(index * 360) / total}, 70%, 50%)`;
       }
 
-      function getSplitTime(team, index) {
-        const current = parseTimeToSeconds(team.times[index]);
-        if (current === null) return null;
-        if (index === 0) return current;
+      // ★ 特定の区間（走者）のスタート時間を取得して個人タイムを計算する関数
+      function getSplitTime(team, index, laps) {
+        const currentSeconds = parseTimeToSeconds(team.times[index]);
+        if (currentSeconds === null) return null;
 
-        let prev = null;
+        // 現在のインデックスより前にある「直近の区切り（走者交代）ポイント」を探す
+        let lastBoundaryIndex = -1;
         for (let i = index - 1; i >= 0; i--) {
+          if (sectionBoundaries.includes(laps[i])) {
+            lastBoundaryIndex = i;
+            break;
+          }
+        }
+
+        // 区切りが前になければ、スタートからの累計がそのまま個人タイム
+        if (lastBoundaryIndex === -1) return currentSeconds;
+
+        // 直近の区切りポイントのタイムを取得（記録がなければさらに前の記録を探す安全策）
+        let prevSeconds = null;
+        for (let i = lastBoundaryIndex; i >= 0; i--) {
           const temp = parseTimeToSeconds(team.times[i]);
           if (temp !== null) {
-            prev = temp;
+            prevSeconds = temp;
             break;
           }
         }
         
-        if (prev === null) return current;
-        return current - prev;
+        if (prevSeconds === null) return currentSeconds;
+        return currentSeconds - prevSeconds;
       }
 
       fetch(gasWebAppUrl)
@@ -331,7 +365,8 @@
           li.className = 'timeline-item';
           const recordedTime = team.times[index];
           
-          const splitSeconds = getSplitTime(team, index);
+          // ★ 修正版の計算ロジックを使用
+          const splitSeconds = getSplitTime(team, index, globalData.laps);
           const splitTimeStr = splitSeconds !== null ? formatSecondsToTime(splitSeconds) : "--:--:--";
 
           let statusText = "未通過";
@@ -388,8 +423,9 @@
           const s1 = parseTimeToSeconds(t1Str);
           const s2 = parseTimeToSeconds(t2Str);
           
-          const split1 = getSplitTime(team1, index);
-          const split2 = getSplitTime(team2, index);
+          // ★ 修正版の計算ロジックを使用
+          const split1 = getSplitTime(team1, index, globalData.laps);
+          const split2 = getSplitTime(team2, index, globalData.laps);
           const split1Str = split1 !== null ? formatSecondsToTime(split1) : '--:--:--';
           const split2Str = split2 !== null ? formatSecondsToTime(split2) : '--:--:--';
 
