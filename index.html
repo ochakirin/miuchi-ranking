@@ -61,6 +61,7 @@
       </div>
 
       <div class="row g-4">
+        <!-- 単一チームエリア -->
         <div class="col-md-5">
           <div class="p-3 bg-light rounded border h-100">
             <h5 class="mb-3 border-bottom pb-2">単一チームの現在地</h5>
@@ -73,6 +74,7 @@
           </div>
         </div>
 
+        <!-- 比較エリア -->
         <div class="col-md-7">
           <div class="p-3 bg-light rounded border h-100">
             <h5 class="mb-3 border-bottom pb-2">2チーム間のタイム差比較</h5>
@@ -107,6 +109,33 @@
           </div>
         </div>
       </div>
+
+      <!-- ★ 新設：走者別 区間タイム表エリア -->
+      <div class="row g-4 mt-1">
+        <div class="col-12">
+          <div class="p-3 bg-light rounded border">
+            <h5 class="mb-3 border-bottom pb-2">
+              🏃‍♂️ 走者別 区間タイム表 <span id="runnerTableName" class="text-primary fw-bold ms-2"></span>
+            </h5>
+            <div class="table-responsive">
+              <table class="table table-sm table-hover bg-white rounded shadow-sm overflow-hidden text-center align-middle">
+                <thead class="table-dark">
+                  <tr>
+                    <th>区間名</th>
+                    <th>走者名</th>
+                    <th>区間タイム</th>
+                    <th>累計タイム</th>
+                  </tr>
+                </thead>
+                <tbody id="runnerTableBody">
+                  <tr><td colspan="4" class="text-muted">読み込み中...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
     </div>
 
     <script>
@@ -116,7 +145,6 @@
       let myChart = null;
       let currentChartMode = 'time';
 
-      // ご指定の区切りとなるラップ名（走者交代のタイミング）
       const sectionBoundaries = [
         "DQ7終了/DQ1スタート",
         "DQ1終了/DQ4スタート",
@@ -130,7 +158,6 @@
       function parseTimeToSeconds(timeStr) {
         if (!timeStr) return null;
         let str = timeStr.toString().trim();
-        // GAS側から「1899/12/30 12:34:56」のような日付混じりの文字列が来た場合、時刻部分だけを抽出する安全対策
         if (str.includes(' ')) {
           str = str.split(' ').pop();
         }
@@ -158,7 +185,6 @@
         const absSeconds = Math.abs(diffSeconds);
         const m = Math.floor(absSeconds / 60);
         const s = Math.floor(absSeconds % 60);
-        // 分・秒だけでなく、必要に応じて時間も表示できるように対応
         if (absSeconds >= 3600) {
           const h = Math.floor(absSeconds / 3600);
           return `${isNegative ? '-' : '+'}${String(h).padStart(2, '0')}:${String(m%60).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
@@ -170,12 +196,10 @@
         return `hsl(${(index * 360) / total}, 70%, 50%)`;
       }
 
-      // ★ 特定の区間（走者）のスタート時間を取得して個人タイムを計算する関数
       function getSplitTime(team, index, laps) {
         const currentSeconds = parseTimeToSeconds(team.times[index]);
         if (currentSeconds === null) return null;
 
-        // 現在のインデックスより前にある「直近の区切り（走者交代）ポイント」を探す
         let lastBoundaryIndex = -1;
         for (let i = index - 1; i >= 0; i--) {
           if (sectionBoundaries.includes(laps[i])) {
@@ -184,10 +208,8 @@
           }
         }
 
-        // 区切りが前になければ、スタートからの累計がそのまま個人タイム
         if (lastBoundaryIndex === -1) return currentSeconds;
 
-        // 直近の区切りポイントのタイムを取得（記録がなければさらに前の記録を探す安全策）
         let prevSeconds = null;
         for (let i = lastBoundaryIndex; i >= 0; i--) {
           const temp = parseTimeToSeconds(team.times[i]);
@@ -275,9 +297,7 @@
               },
               scales: { 
                 y: { 
-                  ticks: {
-                    callback: function(value) { return formatSecondsToTime(value); }
-                  },
+                  ticks: { callback: function(value) { return formatSecondsToTime(value); } },
                   title: { display: true, text: '経過時間 (hh:mm:ss)' },
                   reverse: false
                 } 
@@ -311,15 +331,9 @@
             });
           });
 
-          document.getElementById('zoomInYBtn').addEventListener('click', () => {
-            if (myChart) myChart.zoom({ x: 1, y: 1.3 });
-          });
-          document.getElementById('zoomOutYBtn').addEventListener('click', () => {
-            if (myChart) myChart.zoom({ x: 1, y: 0.77 });
-          });
-          document.getElementById('resetZoomBtn').addEventListener('click', () => {
-            if (myChart) myChart.resetZoom();
-          });
+          document.getElementById('zoomInYBtn').addEventListener('click', () => { if (myChart) myChart.zoom({ x: 1, y: 1.3 }); });
+          document.getElementById('zoomOutYBtn').addEventListener('click', () => { if (myChart) myChart.zoom({ x: 1, y: 0.77 }); });
+          document.getElementById('resetZoomBtn').addEventListener('click', () => { if (myChart) myChart.resetZoom(); });
 
           const selector = document.getElementById('teamSelector');
           const compSel1 = document.getElementById('compareSelector1');
@@ -339,11 +353,15 @@
             compSel2.appendChild(opt2);
           });
 
-          selector.addEventListener('change', (e) => renderTimeline(data.teams[e.target.value]));
+          selector.addEventListener('change', (e) => {
+            renderTimeline(data.teams[e.target.value]);
+            renderRunnerTable(data.teams[e.target.value]); // ★表も切り替える
+          });
           compSel1.addEventListener('change', updateComparison);
           compSel2.addEventListener('change', updateComparison);
 
           renderTimeline(data.teams[0]);
+          renderRunnerTable(data.teams[0]);
           updateComparison();
         })
         .catch(error => {
@@ -365,7 +383,6 @@
           li.className = 'timeline-item';
           const recordedTime = team.times[index];
           
-          // ★ 修正版の計算ロジックを使用
           const splitSeconds = getSplitTime(team, index, globalData.laps);
           const splitTimeStr = splitSeconds !== null ? formatSecondsToTime(splitSeconds) : "--:--:--";
 
@@ -405,6 +422,34 @@
         });
       }
 
+      // ★ 新設：走者別 区間タイム表を描画する関数
+      function renderRunnerTable(team) {
+        document.getElementById('runnerTableName').innerText = `(${team.name})`;
+        const tbody = document.getElementById('runnerTableBody');
+        tbody.innerHTML = '';
+
+        sectionBoundaries.forEach((boundary, idx) => {
+          const lapIndex = globalData.laps.indexOf(boundary);
+          if (lapIndex === -1) return; // 定義された区切りが存在しない場合はスキップ
+
+          const splitSeconds = getSplitTime(team, lapIndex, globalData.laps);
+          const splitTimeStr = splitSeconds !== null ? formatSecondsToTime(splitSeconds) : "--:--:--";
+          const cumulativeTime = team.times[lapIndex] || "--:--:--";
+          
+          // シートから取得した走者名を当てはめる（未取得の場合は「未登録」）
+          const runnerName = (team.runners && team.runners[idx]) ? team.runners[idx] : `<span class="text-muted small">未登録</span>`;
+
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td class="fw-bold">${boundary}</td>
+            <td>${runnerName}</td>
+            <td class="text-primary fw-bold">${splitTimeStr}</td>
+            <td class="text-muted">${cumulativeTime}</td>
+          `;
+          tbody.appendChild(tr);
+        });
+      }
+
       function updateComparison() {
         if (!globalData) return;
         const idx1 = document.getElementById('compareSelector1').value;
@@ -423,7 +468,6 @@
           const s1 = parseTimeToSeconds(t1Str);
           const s2 = parseTimeToSeconds(t2Str);
           
-          // ★ 修正版の計算ロジックを使用
           const split1 = getSplitTime(team1, index, globalData.laps);
           const split2 = getSplitTime(team2, index, globalData.laps);
           const split1Str = split1 !== null ? formatSecondsToTime(split1) : '--:--:--';
